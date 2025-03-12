@@ -31,16 +31,59 @@
 ### Relational
 - URL -> original_url, alias_url, expiration_time
 
-### High Level Design
+## Alias Generation Techniques
 
-![img_1.png](img_1.png)
+### Async Alias Generation
+- Alias generation service generates bulk aliases in async (can be configured to generate either all possible aliases for 6 char or bulk generate them)
+- Stores states of aliases - pending (unused) / completed (used)
 
-![img_2.png](img_2.png)
+#### Further optimize alias generation
+- In Memory cache: Batch cache (eg: 1000 aliases) aliases from DB and mark them completed (cache in each app server)
+- This way bulk aliases are readily generated beforehand 
 
-## Bottlenecks
+![img_3.png](img_3.png)
+
+### Sync Alias Generation
+
+#### Good Method
+- Hash the original url (MD5 or SHA256) to unique alias
+- Encode the generated hash with base62 (why not base64? '/' should not be there in alias URL)
+- Take the first 6 chars from the base62 encoded value
+- If conflicts/duplicate -> Then repeat
+
+##### Problems/Bottlenecks?
+- Conflicts and Duplicates
+- Need DB operation to check if alias is taken
+
+##### How to minimise duplicates?
+- Take longer alias length from encoded value -> Bad user experience
+- Append the encoded value with 
+  - Unique counter for the day -> base62 encode
+  - Date/Time counter (Epoch value) -> base62 encode
+
+#### Great Method
+- Maintain a unique counter for each alias - can use Redis (provides atomicity, concurrency out of the box)
+- Encode the counter with base62 -> ensure shorter length
+- Use as alias - as it'll always be unique
+
+##### Problems/Bottlenecks?
+- Concurrency bottleneck on generating the next counter (incrementing counter)
+- Durabality of counter -> Periodically store counter to persistent store?
+
+##### How to confront concurrency bottleneck
+- Counter Batching: Batch Increment the counter and serve the batch from In Memory cache of the application
+- Even if a server dies the counters would be lost -> Should be okay
+- Cache need to handle concurrent operations on counter batching -> Redis provides
+
+## High Level Design
+
+### Async Alias Generation
+
+![img.png](img.png)
+
+### Sync Alias Generation
+
+![img_4.png](img_4.png)
 
 ### Expiry
-- Delay in expiry due to async operation
-
-### Scalability
-- Read can be made efficient using caching
+- Use cron job / scheduler -> Schedule expiry jobs to delete / revert the used aliases
